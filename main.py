@@ -367,6 +367,8 @@ async def home():
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Statsfy Ultimate Pro</title>
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2534351273417095"
+     crossorigin="anonymous"></script>
         <style>
             :root { --bg: #060608; --card: #111116; --border: #1d1d29; --accent: #ff004c; --text: #f1f1f6; --text-muted: #6c6c85; }
             * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Roboto, sans-serif; }
