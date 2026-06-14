@@ -1,6 +1,7 @@
-import uvicorn
+imporimport uvicorn
 from fastapi import FastAPI, Query
-from fastapi.responses import HTMLResponse, JSONResponse
+# 📢 ADICIONADO PlainTextResponse NA IMPORTAÇÃO ABAIXO
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from googleapiclient.discovery import build
 from cryptography.fernet import Fernet
 from datetime import datetime, timezone, timedelta
@@ -9,6 +10,12 @@ import os
 import difflib
 
 app = FastAPI(title="Statsfy Ultimate Production")
+
+# 📢 ADICIONADA A ROTA DO ADS.TXT ABAIXO
+@app.get("/ads.txt", response_class=PlainTextResponse)
+async def ads_txt():
+    return "google.com, pub-2534351273417095, DIRECT, f08c47fec0942fa0"
+
 
 # 🔐 CHAVES DE PRODUÇÃO (Substitua por sua chave real para testes locais no Pydroid)
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "MINHA_CHAVE_AQUI")
@@ -192,7 +199,7 @@ async def sugerir_canais(q: str = Query(..., min_length=1)):
                 "name": snippet["title"],
                 "id_canal": item["id"]["channelId"]
             })
-        return congestoes
+        return sugestoes
     except:
         return []
 
