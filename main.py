@@ -1,4 +1,4 @@
-imporimport uvicorn
+import uvicorn
 from fastapi import FastAPI, Query
 # 📢 ADICIONADO PlainTextResponse NA IMPORTAÇÃO ABAIXO
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
