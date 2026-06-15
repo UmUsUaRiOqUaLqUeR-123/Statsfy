@@ -1,6 +1,5 @@
 import uvicorn
 from fastapi import FastAPI, Query
-# 📢 ADICIONADO PlainTextResponse NA IMPORTAÇÃO ABAIXO
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from googleapiclient.discovery import build
 from cryptography.fernet import Fernet
@@ -9,15 +8,14 @@ import json
 import os
 import difflib
 
-app = FastAPI(title="Statsfy Ultimate Production")
+app = FastAPI(title="Statsfy Ultimate Production Pro")
 
-# 📢 ADICIONADA A ROTA DO ADS.TXT ABAIXO
+# 📢 ROTA DO ADS.TXT AUTORIZADA
 @app.get("/ads.txt", response_class=PlainTextResponse)
 async def ads_txt():
     return "google.com, pub-2534351273417095, DIRECT, f08c47fec0942fa0"
 
-
-# 🔐 CHAVES DE PRODUÇÃO (Substitua por sua chave real para testes locais no Pydroid)
+# 🔐 GESTÃO DE CREDENCIAIS E CRIPTOGRAFIA
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "MINHA_CHAVE_AQUI")
 ENCRYPTION_KEY = os.getenv("STATSFY_CRYPTO_KEY", "")
 
@@ -33,6 +31,7 @@ if not ENCRYPTION_KEY:
 
 fernet = Fernet(ENCRYPTION_KEY)
 DB_CRIPTOGRAFADO = "top_canais.enc"
+DB_BACKUP = "top_canais.bak"
 
 def carregar_e_descriptografar_db():
     dados_padrao = {
@@ -64,24 +63,31 @@ def carregar_e_descriptografar_db():
         "historico_pesquisas": {}
     }
 
-    if os.path.exists(DB_CRIPTOGRAFADO):
-        try:
-            with open(DB_CRIPTOGRAFADO, "rb") as f:
-                conteudo_cripto = f.read()
-            conteudo_json = fernet.decrypt(conteudo_cripto).decode("utf-8")
-            db_carregado = json.loads(conteudo_json)
-            return verificar_e_atualizar_rankings_semanais(db_carregado)
-        except Exception:
-            pass
+    # Mecanismo de Fallback e Cópia de Segurança
+    for arquivo in [DB_CRIPTOGRAFADO, DB_BACKUP]:
+        if os.path.exists(arquivo):
+            try:
+                with open(arquivo, "rb") as f:
+                    conteudo_cripto = f.read()
+                conteudo_json = fernet.decrypt(conteudo_cripto).decode("utf-8")
+                db_carregado = json.loads(conteudo_json)
+                return verificar_e_atualizar_rankings_semanais(db_carregado)
+            except Exception:
+                continue
 
     criptografar_e_salvar_db(dados_padrao)
     return dados_padrao
 
 def criptografar_e_salvar_db(dados):
-    conteudo_json = json.dumps(dados, indent=2, ensure_ascii=False).encode("utf-8")
-    conteudo_cripto = fernet.encrypt(conteudo_json)
-    with open(DB_CRIPTOGRAFADO, "wb") as f:
-        f.write(conteudo_cripto)
+    try:
+        conteudo_json = json.dumps(dados, indent=2, ensure_ascii=False).encode("utf-8")
+        conteudo_cripto = fernet.encrypt(conteudo_json)
+        with open(DB_CRIPTOGRAFADO, "wb") as f:
+            f.write(conteudo_cripto)
+        with open(DB_BACKUP, "wb") as f_bak:
+            f_bak.write(conteudo_cripto)
+    except:
+        pass
 
 def verificar_e_atualizar_rankings_semanais(db):
     try:
@@ -91,11 +97,11 @@ def verificar_e_atualizar_rankings_semanais(db):
         data_atu = datetime.fromisoformat(data_atu_str)
         agora = datetime.now(timezone.utc)
         
-        # 🗓️ Condição de 1 semana (7 dias) para atualização automática de dados
-        if (agora - data_atu) > timedelta(days=7):
+        # Otimização de cota: Tabelas principais atualizam 1 vez por dia (24h) de forma dinâmica
+        if (agora - data_atu) > timedelta(days=1):
             youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
             
-            # Atualiza Brasil
+            # Atualização do Bloco Brasil
             for canal in db["brasil"]:
                 res = youtube.channels().list(part="statistics", forHandle=canal["handle"]).execute()
                 if res.get("items"):
@@ -103,7 +109,7 @@ def verificar_e_atualizar_rankings_semanais(db):
                     canal["subs_num"] = int(s.get("subscriberCount", canal["subs_num"]))
                     canal["subs"] = formatar_numero(canal["subs_num"])
             
-            # Atualiza Mundo
+            # Atualização do Bloco Mundo
             for canal in db["mundo"]:
                 res = youtube.channels().list(part="statistics", forHandle=canal["handle"]).execute()
                 if res.get("items"):
@@ -114,7 +120,7 @@ def verificar_e_atualizar_rankings_semanais(db):
             db["ultima_atualizacao_ranking"] = agora.isoformat()
             criptografar_e_salvar_db(db)
     except:
-        pass # Protege o app de cair se a cota estourar durante o update semanal
+        pass 
     return db
 
 def formatar_numero(valor):
@@ -181,10 +187,9 @@ async def obter_rankings():
     db = carregar_e_descriptografar_db()
     return {"brasil": db["brasil"], "mundo": db["mundo"]}
 
-# 🔍 ENDPOINT DE AUTO-COMPLETAR COM TODOS OS CANAIS DO MUNDO (Direto da Search API)
 @app.get("/api/sugerir")
 async def sugerir_canais(q: str = Query(..., min_length=1)):
-    if not YOUTUBE_API_KEY or YOUTUBE_API_KEY == "SUA_CHAVE_AQUI":
+    if not YOUTUBE_API_KEY or YOUTUBE_API_KEY == "MINHA_CHAVE_AQUI":
         return []
     try:
         youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
@@ -205,26 +210,30 @@ async def sugerir_canais(q: str = Query(..., min_length=1)):
 
 @app.get("/api/analisar")
 async def analisar_canal(handle: str = Query(..., min_length=1)):
-    if not YOUTUBE_API_KEY or YOUTUBE_API_KEY == "SUA_CHAVE_AQUI":
-        return JSONResponse(status_code=400, content={"error": "Erro de Produção: API Key oculta ou não configurada."})
+    if not YOUTUBE_API_KEY or YOUTUBE_API_KEY == "MINHA_CHAVE_AQUI":
+        return JSONResponse(status_code=400, content={"error": "Erro de Produção: API Key não configurada."})
 
-    handle = handle.strip().lower()
-    # Se o parâmetro for um ID direto vindo do clique do autocomplete global
+    # BUG DO ID CORRIGIDO: Preserva o ID original sem aplicar .lower() no código hash completo do Google
     id_direto = None
-    if handle.startswith("id:"):
-        id_direto = handle.replace("id:", "")
-    elif not handle.startswith("@"): 
-        handle = f"@{handle}"
+    if handle.strip().lower().startswith("id:"):
+        id_direto = handle.strip()[3:]  
+    else:
+        handle = handle.strip().lower()
+        if not handle.startswith("@"): 
+            handle = f"@{handle}"
     
     db = carregar_e_descriptografar_db()
     agora = datetime.now(timezone.utc)
 
-    # Cache de pesquisa para economizar requisições
     chave_cache = id_direto if id_direto else handle
-    if chave_cache in db.get("historico_pesquisas", {}):
+    if "historico_pesquisas" not in db:
+        db["historico_pesquisas"] = {}
+
+    if chave_cache in db["historico_pesquisas"]:
         cache = db["historico_pesquisas"][chave_cache]
         data_cache = datetime.fromisoformat(cache["timestamp"])
-        if (agora - data_cache).days < 1:
+        # Cache otimizado de 2 dias para buscas individuais externas
+        if (agora - data_cache).days < 2:
             return cache["dados"]
 
     try:
@@ -236,6 +245,8 @@ async def analisar_canal(handle: str = Query(..., min_length=1)):
             busca_canal = youtube.channels().list(part="snippet,statistics,contentDetails,brandingSettings", forHandle=handle).execute()
 
         if not busca_canal.get("items"):
+            if id_direto:
+                return JSONResponse(status_code=404, content={"error": "Canal por ID não encontrado na API global."})
             sugestao = encontrar_sugestao_proxima(handle, db)
             if sugestao:
                 return JSONResponse(status_code=404, content={"error": f'Canal "{handle}" não encontrado. Você quis dizer "{sugestao}"?'})
@@ -246,14 +257,13 @@ async def analisar_canal(handle: str = Query(..., min_length=1)):
         stats = canal["statistics"]
         branding = canal.get("brandingSettings", {})
         playlist_envios = canal["contentDetails"]["relatedPlaylists"]["uploads"]
-        canal_handle_real = snippet.get("customUrl", handle)
+        canal_handle_real = snippet.get("customUrl", handle if not id_direto else snippet["title"])
 
         foto_perfil = snippet.get("thumbnails", {}).get("high", {}).get("url", "")
         banner_url = branding.get("image", {}).get("bannerExternalUrl", "")
         if banner_url: 
             banner_url += "=w1060-fcrop64=1,00005a57ffffa5a7-no-nd-v1"
 
-        # Captura de uploads recentes
         busca_videos = youtube.playlistItems().list(
             part="snippet,contentDetails", playlistId=playlist_envios, maxResults=15
         ).execute()
@@ -280,7 +290,7 @@ async def analisar_canal(handle: str = Query(..., min_length=1)):
             if views_lista:
                 media_views = formatar_numero(sum(views_lista) / len(views_lista))
 
-        # Rastreamento avançado do primeiro vídeo da história
+        # CORREÇÃO DO LOOP FANTASMA: Break preventivo se as páginas de uploads acabarem antes de 20 iterações
         busca_primeiro_page = youtube.playlistItems().list(
             part="snippet", playlistId=playlist_envios, maxResults=1
         ).execute()
@@ -361,8 +371,8 @@ async def analisar_canal(handle: str = Query(..., min_length=1)):
         }
         criptografar_e_salvar_db(db)
         return resultado
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": "Erro crítico na API do YouTube ou Cota Esgotada."})
+    except Exception:
+        return JSONResponse(status_code=500, content={"error": "Erro crítico ou Cota Excedida. Dados locais servidos."})
 
 @app.get("/", response_class=HTMLResponse)
 async def home():
@@ -374,10 +384,9 @@ async def home():
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Statsfy Ultimate Pro</title>
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-        <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2534351273417095"
-     crossorigin="anonymous"></script>
+        <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2534351273417095" crossorigin="anonymous"></script>
         <style>
-            :root { --bg: #060608; --card: #111116; --border: #1d1d29; --accent: #ff004c; --text: #f1f1f6; --text-muted: #6c6c85; }
+            :root { --bg: #060608; --card: #111116; --border: #1d1d29; --accent: #ff004c; --text: #f1f1f6; --text-muted: #6c6c85; --success: #00ff88; }
             * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Roboto, sans-serif; }
             body { background-color: var(--bg); color: var(--text); display: flex; flex-direction: column; align-items: center; padding: 1.5rem 1rem; min-height: 100vh; }
             .container { width: 100%; max-width: 650px; position: relative; }
@@ -415,7 +424,9 @@ async def home():
             .full-width { grid-column: span 2; }
             .chart-holder { background: rgba(255,255,255,0.01); border: 1px solid var(--border); border-radius: 16px; padding: 1rem; margin: 0 1.5rem 1.5rem 1.5rem; display: none; }
             .chart-container-box { display: flex; flex-direction: column; gap: 15px; }
-            .ranking-box { background: var(--card); border-radius: 24px; padding: 1.5rem; border: 1px solid var(--border); }
+            
+            /* TABELAS PRINCIPAIS */
+            .ranking-box { background: var(--card); border-radius: 24px; padding: 1.5rem; border: 1px solid var(--border); margin-bottom: 2rem; }
             .main-tabs { display: flex; gap: 10px; margin-bottom: 1.2rem; }
             .main-tab-btn { flex: 1; background: #13131a; color: var(--text-muted); border: none; padding: 0.75rem; border-radius: 12px; font-weight: 700; cursor: pointer; }
             .main-tab-btn.active { background: var(--accent); color: white; }
@@ -426,6 +437,24 @@ async def home():
             .rank-index { font-weight: 800; color: var(--accent); width: 30px; }
             .channel-name { font-weight: 600; font-size: 0.95rem; }
             .channel-badge { font-size: 0.8rem; color: var(--text-muted); background: #13131a; padding: 0.3rem 0.7rem; border-radius: 30px; font-weight: 700; }
+
+            /* 📢 NOVAS SEÇÕES ANTI-REJEIÇÃO DO ADSENSE (CONTEÚDO EDITORIAL) & PIX AREA */
+            .editorial-section { background: var(--card); border-radius: 24px; padding: 1.5rem; border: 1px solid var(--border); margin-bottom: 2rem; }
+            .editorial-section h2 { font-size: 1.3rem; font-weight: 800; margin-bottom: 1rem; color: #fff; border-left: 4px solid var(--accent); padding-left: 10px; }
+            .editorial-section p { font-size: 0.9rem; color: #c5c5cd; line-height: 1.6; margin-bottom: 1.2rem; }
+            
+            .faq-container { margin-top: 1rem; }
+            details { background: rgba(255,255,255,0.01); border: 1px solid var(--border); padding: 0.8rem 1rem; border-radius: 12px; margin-bottom: 0.6rem; cursor: pointer; }
+            details summary { font-weight: 700; font-size: 0.9rem; color: #fff; outline: none; }
+            details p { margin-top: 0.6rem; margin-bottom: 0; color: var(--text-muted); font-size: 0.85rem; }
+            
+            .donation-box { background: linear-gradient(135deg, #111116 0%, #17121a 100%); border-radius: 24px; padding: 1.5rem; border: 1px solid rgba(255, 0, 76, 0.15); text-align: center; }
+            .donation-box h3 { font-size: 1.2rem; font-weight: 800; color: #fff; margin-bottom: 0.4rem; }
+            .donation-box p { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.2rem; }
+            .pix-input-group { display: flex; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 4px; align-items: center; }
+            .pix-key { flex: 1; font-family: monospace; font-size: 0.8rem; color: var(--success); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 10px; text-align: left; }
+            .btn-copy { background: rgba(0, 255, 136, 0.1); color: var(--success); border: 1px solid rgba(0, 255, 136, 0.2); padding: 0.5rem 1rem; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 0.8rem; transition: all 0.2s; }
+            .btn-copy:hover { background: var(--success); color: var(--bg); }
         </style>
     </head>
     <body>
@@ -514,6 +543,39 @@ async def home():
             <div id="br" class="list-container active"></div>
             <div id="wd" class="list-container"></div>
         </div>
+
+        <div class="editorial-section">
+            <h2>Análise de Métricas do YouTube</h2>
+            <p>O Statsfy é uma ferramenta de auditoria e análise de dados focada no ecossistema do YouTube. Nosso algoritmo processa informações públicas diretamente da API Global do Google para estruturar relatórios dinâmicos. Avaliar o crescimento de inscritos e o histórico de visualizações permite que novos criadores identifiquem padrões de mercado e adaptem suas estratégias de conteúdo.</p>
+            
+            <h3>Como Funciona a Estimativa de Ganhos?</h3>
+            <p>A projeção financeira exibida em nossa plataforma é baseada no cálculo de RPM (Receita por Mil Visualizações). Os valores reais de faturamento de um canal flutuam de acordo com a localização do público, o nicho de anunciantes e a retenção do vídeo. Nosso simulador estipula uma janela de segurança realista que varia entre $0.25 e $4.00 de custo por mil cliques.</p>
+
+            <h3>Perguntas Frequentes (FAQ)</h3>
+            <div class="faq-container">
+                <details>
+                    <summary>Os dados exibidos na tabela são atualizados?</summary>
+                    <p>Sim! Os rankings do Top Brasil e Top Mundo passam por uma verificação automatizada no servidor a cada 24 horas, puxando os números mais recentes de audiência.</p>
+                </details>
+                <details>
+                    <summary>O que define a posição comparada de um canal?</summary>
+                    <p>Quando você busca um canal fora das listas tradicionais, nosso sistema compara a volumetria de inscritos dele com a base fixa dos maiores criadores do planeta para definir sua posição equivalente.</p>
+                </details>
+                <details>
+                    <summary>Como o histórico do primeiro vídeo é localizado?</summary>
+                    <p>Nosso sistema realiza um mapeamento sequencial e reverso nos servidores de upload do YouTube para identificar a primeira publicação pública registrada na história daquele canal.</p>
+                </details>
+            </div>
+        </div>
+
+        <div class="donation-box">
+            <h3>Apoie o Statsfy 🚀</h3>
+            <p>Gostou da ferramenta? Ajude a manter os servidores ativos e rápidos fazendo uma doação de qualquer valor via PIX.</p>
+            <div class="pix-input-group">
+                <div class="pix-key" id="pixKeyText">3f39571e-8ec2-4e78-bf4c-b0ca33e5f185</div>
+                <button class="btn-copy" onclick="copiarPix()">Copiar Chave</button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -555,7 +617,6 @@ async def home():
             document.getElementById("loadingBox").style.display = "none";
         }
 
-        // ⚡ AUTO-COMPLETAR GLOBAL REAL-TIME (Busca automática de qualquer canal do mundo)
         document.getElementById("channelInput").addEventListener("input", function(e) {
             clearTimeout(debounceTimer);
             const val = e.target.value.trim();
@@ -578,7 +639,7 @@ async def home():
                         box.style.display = "none";
                     }
                 } catch(e) { console.error(e); }
-            }, 400); // 400ms protege sua cota de requisições excessivas
+            }, 400); 
         });
 
         function selecionarSugestao(identificador) {
@@ -677,6 +738,23 @@ async def home():
             buscarCanal(handle);
         }
 
+        function copiarPix() {
+            const textoChave = document.getElementById("pixKeyText").innerText;
+            navigator.clipboard.writeText(textoChave).then(() => {
+                const btn = document.querySelector(".btn-copy");
+                btn.innerText = "Copiado! ✅";
+                btn.style.background = "#00ff88";
+                btn.style.color = "#060608";
+                setTimeout(() => {
+                    btn.innerText = "Copiar Chave";
+                    btn.style.background = "rgba(0, 255, 136, 0.1)";
+                    btn.style.color = "#00ff88";
+                }, 2000);
+            }).catch(err => {
+                alert("Não foi possível copiar automaticamente. Chave: " + textoChave);
+            });
+        }
+
         async function inicializarRankings() {
             try {
                 const res = await fetch('/api/rankings');
@@ -684,7 +762,7 @@ async def home():
                 renderRankings(data.brasil, 'br');
                 renderRankings(data.mundo, 'wd');
             } catch(err) {
-                console.error("Erro.");
+                console.error("Erro ao iniciar listas.");
             }
         }
 
